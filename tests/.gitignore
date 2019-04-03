@@ -1,3 +1,7 @@
+# graphviz
+*.dot
+
+# media
 lava.webm
 montreal.mp4
 waves.mp4

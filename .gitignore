@@ -26,5 +26,8 @@ benchmarks/graphs
 # VSCode
 .vscode
 
+# python
+__pycache__
+
 # local
 _/
