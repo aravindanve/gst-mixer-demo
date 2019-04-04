@@ -433,9 +433,6 @@ def _do_mtunsafe_link_video_rtp_stream(packager, rtp_bin_srcpad):
     video_decode_tee_srcpad_1.link(video_selector_sinkpad_1)
     packager.video_selector.set_property('active-pad', video_selector_sinkpad_1)
 
-    packager.pipeline.set_state(Gst.State.PAUSED)
-    packager.pipeline.set_state(Gst.State.PLAYING)
-
 def _do_mtunsafe_unlink_video_rtp_stream(packager):
     log_info('_do_mtunsafe_unlink_video_rtp_stream()')
     pass # FIXME
@@ -471,9 +468,6 @@ def _do_mtunsafe_link_audio_rtp_stream(packager, rtp_bin_srcpad):
 
     audio_decode_tee_srcpad_1.link(audio_selector_sinkpad_1)
     packager.audio_selector.set_property('active-pad', audio_selector_sinkpad_1)
-
-    packager.pipeline.set_state(Gst.State.PAUSED)
-    packager.pipeline.set_state(Gst.State.PLAYING)
 
 def _do_mtunsafe_unlink_audio_rtp_stream(packager):
     log_info('_do_mtunsafe_unlink_audio_rtp_stream()')
