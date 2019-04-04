@@ -1,9 +1,9 @@
-#!/usr/bin/env python3
-
-import gi
-gi.require_version('Gst', '1.0')
+import gi; gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 from threading import Lock
+
+from shared import *
+from logger import *
 
 class Mixer:
     pass
@@ -11,18 +11,11 @@ class Mixer:
 class Stream:
     pass
 
-class UnsupportedException(Exception):
-    pass
-
-def debug_graph(gstbin, filename):
-    f = open('%s.dot' % filename, 'w')
-    f.write(Gst.debug_bin_to_dot_data(gstbin, Gst.DebugGraphDetails.ALL))
-    f.close()
-
 def do_mixer_init(**kwargs):
+    log_info(Mixer, 'do_mixer_init()')
     mixer = Mixer()
 
-    mixer.debug = kwargs.get('debug', False)
+    mixer.name = 'mixer'
     mixer.debug_output = kwargs.get('debug_output', False)
 
     mixer.disposed = False
@@ -148,10 +141,12 @@ def do_mixer_init(**kwargs):
         mixer.audio_payload = kwargs.get('payload') or 100
 
         if mixer.video_encoding_name not in ['H264']:
-            raise UnsupportedException('Unsupported video encoding: %s' % mixer.video_encoding_name)
+            log_error(mixer, 'unsupported video encoding: %s' % mixer.video_encoding_name)
+            return
 
         if mixer.audio_encoding_name not in ['OPUS']:
-            raise UnsupportedException('Unsupported video encoding: %s' % mixer.audio_encoding_name)
+            log_error(mixer, 'unsupported audio encoding: %s' % mixer.video_encoding_name)
+            return
 
         mixer.video_paycaps = Gst.caps_from_string(
             'application/x-rtp,media=video,clock-rate=%s,encoding-name=%s,payload=%s' % (
@@ -328,65 +323,51 @@ def do_mixer_init(**kwargs):
 
     _do_mtunsafe_resize_streams(mixer)
 
-    mixer.debug and debug_graph(mixer.pipeline, 'debug_mixer_init')
+    log_graph(mixer.pipeline, 'debug_mixer_init')
 
     return mixer
 
 def do_mixer_start(mixer):
+    log_info(mixer, 'do_mixer_start()')
     mixer.pipeline.set_state(Gst.State.PLAYING)
 
-    mixer.debug and debug_graph(mixer.pipeline, 'debug_mixer_start')
+    log_graph(mixer.pipeline, 'debug_mixer_start')
 
 def do_mixer_stop(mixer):
+    log_info(mixer, 'do_mixer_stop()')
     mixer.pipeline.set_state(Gst.State.PAUSED)
 
-    mixer.debug and debug_graph(mixer.pipeline, 'debug_mixer_stop')
+    log_graph(mixer.pipeline, 'debug_mixer_stop')
 
 def do_mixer_dispose(mixer):
+    log_info(mixer, 'do_mixer_dispose()')
     mixer.pipeline.set_state(Gst.State.NULL)
     mixer.disposed = True
 
-    mixer.debug and debug_graph(mixer.pipeline, 'debug_mixer_dispose')
-
-def _parse_mixer_rtpbin_pad_info_from_name(pad_name):
-    pad_name_parts = pad_name.split('_')
-    info = {}
-
-    if len(pad_name_parts) >= 4:
-        info['direction'] = pad_name_parts[0]
-        info['protocol'] = pad_name_parts[1]
-        info['type'] = pad_name_parts[2]
-        info['session'] = int(pad_name_parts[3])
-
-    if len(pad_name_parts) >= 6:
-        info['ssrc'] = pad_name_parts[4]
-        info['payload'] = int(pad_name_parts[5])
-
-    return info
+    log_graph(mixer.pipeline, 'debug_mixer_dispose')
 
 def _on_mixer_recv_rtpbin_pad_added(rtpbin, pad, mixer):
     pad_name = pad.get_name()
-    pad_info = _parse_mixer_rtpbin_pad_info_from_name(pad_name)
+    pad_info = parse_rtpbin_pad_info_from_name(pad_name)
 
     if 'ssrc' not in pad_info: return
 
-    mixer.debug and print('_on_mixer_recv_rtpbin_pad_added', pad_name)
+    log_info(mixer, '_on_mixer_recv_rtpbin_pad_added', pad_name)
 
     session = pad_info.get('session')
     _on_mixer_stream_start(mixer, session, pad)
 
 def _on_mixer_recv_rtpbin_pad_removed(rtpbin, pad, mixer):
     pad_name = pad.get_name()
-    pad_info = _parse_mixer_rtpbin_pad_info_from_name(pad_name)
+    pad_info = parse_rtpbin_pad_info_from_name(pad_name)
 
     if 'ssrc' not in pad_info: return
 
-    mixer.debug and print('_on_mixer_recv_rtpbin_pad_removed', pad_name)
+    log_info(mixer, '_on_mixer_recv_rtpbin_pad_removed', pad_name)
 
 def do_mixer_stream_init(mixer, **kwargs):
+    log_info(mixer, 'do_mixer_stream_init()')
     stream = Stream()
-
-    stream.debug = kwargs.get('debug', mixer.debug)
 
     stream.disposed = False
 
@@ -396,28 +377,33 @@ def do_mixer_stream_init(mixer, **kwargs):
     stream.payload = kwargs.get('payload') or 101
 
     if stream.media != 'video' and stream.media != 'audio':
-        raise UnsupportedException('Unsupported media: %s' % media)
+        log_error(mixer, 'unsupported media: %s' % stream.media)
+        return
 
     if stream.media == 'video' and stream.encoding_name not in ['VP8', 'H264']:
-        raise UnsupportedException('Unsupported %s encoding: %s' % (stream.media, stream.encoding_name))
+        log_error(mixer, 'unsupported %s encoding: %s' % (stream.media, stream.encoding_name))
+        return
 
     if stream.media == 'audio' and stream.encoding_name not in ['OPUS']:
-        raise UnsupportedException('Unsupported %s encoding: %s' % (stream.media, stream.encoding_name))
+        log_error(mixer, 'unsupported %s encoding: %s' % (stream.media, stream.encoding_name))
+        return
 
     with mixer.lock:
         if stream.media == 'video':
             if len(mixer.video_streams) >= 4:
-                raise UnsupportedException('Maximum of 4 video streams supported')
-            else:
-                mixer.streams[mixer.session_count] = stream
-                mixer.video_streams[mixer.session_count] = stream
+                log_error(mixer, 'maximum of 4 video streams supported')
+                return
+
+            mixer.streams[mixer.session_count] = stream
+            mixer.video_streams[mixer.session_count] = stream
 
         elif stream.media == 'audio':
             if len(mixer.audio_streams) >= 6:
-                raise UnsupportedException('Maximum of 6 audio streams supported')
-            else:
-                mixer.streams[mixer.session_count] = stream
-                mixer.audio_streams[mixer.session_count] = stream
+                log_error(mixer, 'maximum of 6 audio streams supported')
+                return
+
+            mixer.streams[mixer.session_count] = stream
+            mixer.audio_streams[mixer.session_count] = stream
 
         stream.mixer = mixer
         stream.session = mixer.session_count
@@ -593,12 +579,13 @@ def do_mixer_stream_init(mixer, **kwargs):
     stream.recv_rtcpsink.sync_state_with_parent()
     STEP += 1; print('..........................STEP %s' % STEP) # TODO: remove
 
-    stream.debug and debug_graph(mixer.pipeline, 'debug_mixer_stream_%s_init' % stream.session)
+    log_graph(mixer.pipeline, 'debug_mixer_stream_%s_init' % stream.session)
     STEP += 1; print('..........................STEP %s' % STEP) # TODO: remove
 
     return stream
 
 def do_mixer_stream_dispose(mixer, stream):
+    log_info(stream, 'do_mixer_stream_dispose()')
     with mixer.lock:
         if stream.disposed: return
 
@@ -608,9 +595,10 @@ def do_mixer_stream_dispose(mixer, stream):
 
     GLib.idle_add(_do_mixer_stream_dispose_cb, mixer, stream)
 
-    stream.debug and debug_graph(mixer.pipeline, 'debug_mixer_stream_%s_dispose' % stream.session)
+    log_graph(mixer.pipeline, 'debug_mixer_stream_%s_dispose' % stream.session)
 
 def _do_mixer_stream_dispose_cb(mixer, stream):
+    log_info(stream, '_do_mixer_stream_dispose_cb()')
     stream.rtpsrcbin.set_state(Gst.State.NULL)
     mixer.pipeline.remove(stream.rtpsrcbin)
 
@@ -632,11 +620,14 @@ def _do_mixer_stream_dispose_cb(mixer, stream):
     stream.rtpdecodetee = None
     stream.fakesink = None
 
-    stream.debug and debug_graph(mixer.pipeline, 'debug_mixer_stream_%s_dispose_cb' % stream.session)
+    log_graph(mixer.pipeline, 'debug_mixer_stream_%s_dispose_cb' % stream.session)
 
 def _on_mixer_stream_start(mixer, session, srcpad):
+    log_info('session_%s' % session, '_on_mixer_stream_start()')
     with mixer.lock:
-        if not session in mixer.streams: return
+        if not session in mixer.streams:
+            log_warn(session, 'no stream found for session')
+            return
 
         stream = mixer.streams[session]
 
@@ -644,9 +635,10 @@ def _on_mixer_stream_start(mixer, session, srcpad):
         _do_mtunsafe_link_rtpdecodebin_to_avmixer(mixer, stream)
         _do_mtunsafe_resize_streams(mixer)
 
-    stream.debug and debug_graph(mixer.pipeline, 'debug_mixer_stream_%s_start' % session)
+    log_graph(mixer.pipeline, 'debug_mixer_stream_%s_start' % session)
 
 def _do_mtunsafe_link_rtpbin_to_rtpdecodebin(stream, rtpbin_srcpad):
+    log_info(stream, '_do_mtunsafe_link_rtpbin_to_rtpdecodebin()')
     rtpdecodebin_sinkpad = stream.rtpdecodebin.get_static_pad('sink')
 
     if rtpdecodebin_sinkpad.is_linked():
@@ -657,6 +649,7 @@ def _do_mtunsafe_link_rtpbin_to_rtpdecodebin(stream, rtpbin_srcpad):
     rtpbin_srcpad.link(rtpdecodebin_sinkpad)
 
 def _do_mtunsafe_link_rtpdecodebin_to_avmixer(mixer, stream):
+    log_info(stream, '_do_mtunsafe_link_rtpdecodebin_to_avmixer()')
     if stream.rtpdecodetee.get_static_pad('src_1'): return
 
     rtpdecodetee_srcpad = stream.rtpdecodetee.get_request_pad('src_1')
@@ -704,6 +697,7 @@ def _do_mtunsafe_link_rtpdecodebin_to_avmixer(mixer, stream):
     stream.fakesink.sync_state_with_parent()
 
 def _do_mtunsafe_unlink_rtpdecodebin_from_avmixer(mixer, stream):
+    log_info(stream, '_do_mtunsafe_unlink_rtpdecodebin_from_avmixer()')
     if not stream.rtpdecodetee.get_static_pad('src_1'): return
 
     rtpdecodetee_srcpad = stream.rtpdecodetee.get_static_pad('src_1')
@@ -735,6 +729,7 @@ def _do_mtunsafe_unlink_rtpdecodebin_from_avmixer(mixer, stream):
             mixer.audiosrc_capsfilter.sync_state_with_parent()
 
 def _do_mtunsafe_resize_streams(mixer):
+    log_info(mixer, '_do_mtunsafe_resize_streams()')
     if not hasattr(mixer, 'last_seen_video_streams_count'):
         mixer.last_seen_video_streams_count = 0
 

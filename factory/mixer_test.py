@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
-import gi
-gi.require_version('Gst', '1.0')
+import gi; gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
-from threading import Timer, Lock
+from threading import Timer
 
 from mixer import *
 
 if __name__ == '__main__':
+    set_log_level(LogLevel.ALL)
+
     Gst.init(None)
     Gst.debug_set_active(True)
     Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
@@ -18,8 +19,7 @@ if __name__ == '__main__':
     def do_action(name, action, *ref_names, **kwargs):
         global refs
 
-        print('............. %s = %s(%s)' % (
-            name, action.__name__, ','.join(ref_names)))
+        log_info('%s = %s(%s)' % (name, action.__name__, ','.join(ref_names)))
 
         args = [refs[ref_name] for ref_name in ref_names]
         refs[name] = action(*args, **kwargs)
