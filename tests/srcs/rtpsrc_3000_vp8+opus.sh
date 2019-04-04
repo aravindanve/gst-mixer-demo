@@ -8,13 +8,13 @@ gst-launch-1.0 -v \
     ! udpsink host=127.0.0.1 port=3000 \
     rtpbin.send_rtcp_src_0 \
     ! udpsink host=127.0.0.1 port=3001 sync=false async=false \
-    udpsrc address=127.0.0.1 port=4000 \
+    udpsrc address=127.0.0.1 port=4001 \
     ! rtpbin.recv_rtcp_sink_0 \
     rtpbin.send_rtp_src_1 \
     ! udpsink host=127.0.0.1 port=3002 \
     rtpbin.send_rtcp_src_1 \
     ! udpsink host=127.0.0.1 port=3003 sync=false async=false \
-    udpsrc address=127.0.0.1 port=4002 \
+    udpsrc address=127.0.0.1 port=4003 \
     ! rtpbin.recv_rtcp_sink_1 \
     multiqueue name=multiq \
     multifilesrc \

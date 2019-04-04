@@ -14,7 +14,7 @@ gst-launch-1.0 -v \
         address=127.0.0.1 \
     ! rtpbin.recv_rtcp_sink_0 \
     rtpbin.send_rtcp_src_0 \
-    ! udpsink port=4000 \
+    ! udpsink port=4001 \
         sync=false \
         async=false \
     rtpbin. \
@@ -32,7 +32,7 @@ gst-launch-1.0 -v \
         address=127.0.0.1 \
     ! rtpbin.recv_rtcp_sink_1 \
     rtpbin.send_rtcp_src_1 \
-    ! udpsink port=4002 \
+    ! udpsink port=4003 \
         sync=false \
         async=false \
     rtpbin. \
