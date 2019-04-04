@@ -45,7 +45,7 @@ def do_packager_init(**kwargs):
 
     packager.rtp_bin = Gst.ElementFactory.make('rtpbin', 'rtp_bin')
     packager.rtp_bin.set_property('autoremove', True)
-    # packager.rtp_bin.set_property('drop-on-latency', True)
+    # packager.rtp_bin.set_property('drop-on-latency', True) # NOTE: H264 needs adjacent frames to seek
     packager.pipeline.add(packager.rtp_bin)
 
     packager.video_rtp_local_ip = kwargs.get('video_rtp_local_ip') or '127.0.0.1'
@@ -411,7 +411,7 @@ def _do_mtunsafe_link_video_rtp_stream(packager, rtp_bin_srcpad):
         peerpad.unlink(depay_sinkpad)
 
     rtp_bin_srcpad.link(depay_sinkpad)
-    # packager.rtp_bin.emit('reset-sync')
+    # packager.rtp_bin.emit('reset-sync') # NOTE: not sure what this does
 
     if packager.video_fake_sink.is_locked_state():
         packager.video_fake_sink.set_locked_state(False)
@@ -450,7 +450,7 @@ def _do_mtunsafe_link_audio_rtp_stream(packager, rtp_bin_srcpad):
         peerpad.unlink(depay_sinkpad)
 
     rtp_bin_srcpad.link(depay_sinkpad)
-    # packager.rtp_bin.emit('reset-sync')
+    # packager.rtp_bin.emit('reset-sync') # NOTE: not sure what this does
 
     if packager.audio_fake_sink.is_locked_state():
         packager.audio_fake_sink.set_locked_state(False)
