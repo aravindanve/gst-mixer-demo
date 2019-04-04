@@ -1,4 +1,4 @@
-def parse_rtpbin_pad_info_from_name(pad_name):
+def parse_rtp_bin_pad_info_from_name(pad_name):
     pad_name_parts = pad_name.split('_')
     info = {}
 

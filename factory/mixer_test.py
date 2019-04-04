@@ -25,7 +25,6 @@ if __name__ == '__main__':
         refs[name] = action(*args, **kwargs)
 
     Timer(0, do_action, args=['mixer', do_mixer_init], kwargs={
-        'debug': True,
         'debug_output': True,
         'default_pattern': 'snow',
         'default_wave': 'red-noise',

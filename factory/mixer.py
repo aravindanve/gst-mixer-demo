@@ -28,7 +28,7 @@ def do_mixer_init(**kwargs):
 
     mixer.last_resize_video_streams_count = 0
 
-    mixer.pipeline = Gst.Pipeline('mixer')
+    mixer.pipeline = Gst.Pipeline(mixer.name)
 
     mixer.video_format = kwargs.get('video_format') or 'I420'
     mixer.video_framerate = kwargs.get('video_framerate') or '30/1'
@@ -317,7 +317,7 @@ def do_mixer_init(**kwargs):
         send_rtpbin_rtcp_srcpad_1.link(send_rtcpsrc_sinkpad_1)
 
     mixer.recv_rtpbin.connect('pad-added', _on_mixer_recv_rtpbin_pad_added, mixer)
-    mixer.recv_rtpbin.connect('pad-added', _on_mixer_recv_rtpbin_pad_removed, mixer)
+    mixer.recv_rtpbin.connect('pad-removed', _on_mixer_recv_rtpbin_pad_removed, mixer)
 
     mixer.pipeline.set_state(Gst.State.PAUSED)
 
@@ -348,7 +348,7 @@ def do_mixer_dispose(mixer):
 
 def _on_mixer_recv_rtpbin_pad_added(rtpbin, pad, mixer):
     pad_name = pad.get_name()
-    pad_info = parse_rtpbin_pad_info_from_name(pad_name)
+    pad_info = parse_rtp_bin_pad_info_from_name(pad_name)
 
     if 'ssrc' not in pad_info: return
 
@@ -359,7 +359,7 @@ def _on_mixer_recv_rtpbin_pad_added(rtpbin, pad, mixer):
 
 def _on_mixer_recv_rtpbin_pad_removed(rtpbin, pad, mixer):
     pad_name = pad.get_name()
-    pad_info = parse_rtpbin_pad_info_from_name(pad_name)
+    pad_info = parse_rtp_bin_pad_info_from_name(pad_name)
 
     if 'ssrc' not in pad_info: return
 
@@ -626,7 +626,7 @@ def _on_mixer_stream_start(mixer, session, srcpad):
     log_info('session_%s' % session, '_on_mixer_stream_start()')
     with mixer.lock:
         if not session in mixer.streams:
-            log_warn(session, 'no stream found for session')
+            log_warn('session_%s' % session, 'no stream found for session')
             return
 
         stream = mixer.streams[session]
