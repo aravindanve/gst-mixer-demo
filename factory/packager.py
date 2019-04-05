@@ -1,6 +1,6 @@
 import gi; gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
-from threading import Lock
+from threading import Lock, Timer
 
 from shared import *
 from logger import *
@@ -18,6 +18,7 @@ def do_packager_init(**kwargs):
     packager.disposed = False
     packager.lock = Lock()
 
+    log_info(packager, 'creating pipeline')
     packager.pipeline = Gst.Pipeline(packager.name)
 
     packager.video_rtp_clock_rate = kwargs.get('video_rtp_clock_rate') or 90000
@@ -43,11 +44,13 @@ def do_packager_init(**kwargs):
         'application/x-rtp,media=audio,clock-rate=%s,encoding-name=%s,payload=%s' % (
             packager.audio_rtp_clock_rate, packager.audio_rtp_encoding_name, packager.audio_rtp_payload))
 
+    log_info(packager, 'creating rtp bin')
     packager.rtp_bin = Gst.ElementFactory.make('rtpbin', 'rtp_bin')
     packager.rtp_bin.set_property('autoremove', True)
     # packager.rtp_bin.set_property('drop-on-latency', True) # NOTE: H264 needs adjacent frames to seek
     packager.pipeline.add(packager.rtp_bin)
 
+    log_info(packager, 'creating video rtp srcs and sinks')
     packager.video_rtp_local_ip = kwargs.get('video_rtp_local_ip') or '127.0.0.1'
     packager.video_rtp_local_port = kwargs.get('video_rtp_local_port') or 3000
     packager.video_rtp_src = Gst.ElementFactory.make('udpsrc', '%s_video_rtp_src' % packager.name)
@@ -85,6 +88,7 @@ def do_packager_init(**kwargs):
     video_rtcp_sink_sinkpad = packager.video_rtcp_sink.get_static_pad('sink')
     rtp_bin_rtcp_srcpad_0.link(video_rtcp_sink_sinkpad)
 
+    log_info(packager, 'creating audio rtp srcs and sinks')
     packager.audio_rtp_local_ip = kwargs.get('audio_rtp_local_ip') or '127.0.0.1'
     packager.audio_rtp_local_port = kwargs.get('audio_rtp_local_port') or 3002
     packager.audio_rtp_src = Gst.ElementFactory.make('udpsrc', '%s_audio_rtp_src' % packager.name)
@@ -138,6 +142,7 @@ def do_packager_init(**kwargs):
         'audio/x-raw,format=%s,rate=%s,channels=%s,layout=%s' % (
             packager.audio_format, packager.audio_rate, packager.audio_channels, packager.audio_layout))
 
+    log_info(packager, 'creating video selector chain')
     default_pattern = kwargs.get('default_pattern') or 'black'
     packager.video_src = Gst.ElementFactory.make('videotestsrc', 'video_src')
     packager.video_src.set_property('is-live', True)
@@ -158,6 +163,7 @@ def do_packager_init(**kwargs):
     video_selector_sink_0 = packager.video_selector.request_pad(video_selector_sink_0_template, 'sink_0')
     video_src_caps_filter_srcpad.link(video_selector_sink_0)
 
+    log_info(packager, 'creating audio selector chain')
     default_wave = kwargs.get('default_wave') or 'silence'
     default_volume = kwargs.get('default_volume') or 0.02
     packager.audio_src = Gst.ElementFactory.make('audiotestsrc', 'audio_src')
@@ -180,6 +186,7 @@ def do_packager_init(**kwargs):
     audio_selector_sink_0 = packager.audio_selector.request_pad(audio_selector_sink_0_template, 'sink_0')
     audio_src_caps_filter_srcpad.link(audio_selector_sink_0)
 
+    log_info(packager, 'linking video and audio chains using multi queue')
     packager.multi_queue = Gst.ElementFactory.make('multiqueue', 'multi_queue')
     packager.pipeline.add(packager.multi_queue)
 
@@ -193,6 +200,7 @@ def do_packager_init(**kwargs):
     multi_queue_sinkpad_1 = packager.multi_queue.request_pad(multi_queue_sinkpad_1_template , 'sink_1')
     audio_selector_srcpad.link(multi_queue_sinkpad_1)
 
+    log_info(packager, 'creating standby video rtp decode chain')
     if packager.video_rtp_encoding_name == 'H264':
         packager.video_depay = Gst.ElementFactory.make('rtph264depay', 'video_depay')
         packager.pipeline.add(packager.video_depay)
@@ -252,6 +260,7 @@ def do_packager_init(**kwargs):
     video_fake_sink_sinkpad = packager.video_fake_sink.get_static_pad('sink')
     video_decode_tee_srcpad_0.link(video_fake_sink_sinkpad)
 
+    log_info(packager, 'creating standby audio rtp decode chain')
     if packager.audio_rtp_encoding_name == 'OPUS':
         packager.audio_depay = Gst.ElementFactory.make('rtpopusdepay', 'audio_depay')
         packager.pipeline.add(packager.audio_depay)
@@ -296,6 +305,8 @@ def do_packager_init(**kwargs):
     audio_decode_tee_srcpad_0.link(audio_fake_sink_sinkpad)
 
     if packager.debug_output:
+        log_info(packager, 'creating debug output chain')
+
         packager.video_sink = Gst.ElementFactory.make('autovideosink', 'video_sink')
         packager.pipeline.add(packager.video_sink)
 
@@ -339,9 +350,12 @@ def do_packager_init(**kwargs):
         log_error(packager, 'hls not implemented')
         return
 
+    log_info(packager, 'attaching event listeners')
     packager.rtp_bin.connect('pad-added', _on_packager_rtp_bin_pad_added, packager)
     packager.rtp_bin.connect('pad-removed', _on_packager_rtp_bin_pad_removed, packager)
+    packager.rtp_bin.connect('on-timeout', _on_packager_rtp_bin_timeout, packager)
 
+    log_info(packager, 'setting pipeline state to paused')
     packager.pipeline.set_state(Gst.State.PAUSED)
 
     log_graph(packager.pipeline, 'debug_packager_init')
@@ -355,13 +369,13 @@ def do_packager_start(packager):
     log_graph(packager.pipeline, 'debug_packager_start')
 
 def do_packager_stop(packager):
-    log_info('do_packager_stop()')
+    log_info(packager, 'do_packager_stop()')
     packager.pipeline.set_state(Gst.State.PAUSED)
 
     log_graph(packager.pipeline, 'debug_packager_stop')
 
 def do_packager_dispose(packager):
-    log_info('do_packager_dispose()')
+    log_info(packager, 'do_packager_dispose()')
     packager.pipeline.set_state(Gst.State.NULL)
     packager.disposed = True
 
@@ -369,104 +383,177 @@ def do_packager_dispose(packager):
 
 def _on_packager_rtp_bin_pad_added(rtp_bin, pad, packager):
     pad_name = pad.get_name()
+    log_info(packager, '_on_packager_rtp_bin_pad_added()', pad_name)
+
     pad_info = parse_rtp_bin_pad_info_from_name(pad_name)
 
-    if 'ssrc' not in pad_info: return
-    log_info('_on_packager_rtp_bin_pad_added()', pad_name)
+    if 'ssrc' not in pad_info:
+        log_info(packager, 'not an ssrc pad, skipping...', pad_name)
+        return
 
     session = pad_info.get('session')
     _on_packager_stream_start(packager, session, pad)
 
 def _on_packager_rtp_bin_pad_removed(rtp_bin, pad, packager):
     pad_name = pad.get_name()
+    log_info(packager, '_on_packager_rtp_bin_pad_removed()', pad_name)
+
     pad_info = parse_rtp_bin_pad_info_from_name(pad_name)
 
-    if 'ssrc' not in pad_info: return
-    log_info('_on_packager_rtp_bin_pad_removed()', pad_name)
+    if 'ssrc' not in pad_info:
+        log_info(packager, 'not an ssrc pad, skipping...', pad_name)
+        return
+
+    session = pad_info.get('session')
+    _on_packager_stream_stopped(packager, session, pad)
+
+def _on_packager_rtp_bin_timeout(rtp_bin, session, ssrc, packager):
+    log_info(packager, '_on_packager_rtp_bin_timeout()', session, ssrc)
 
 def _on_packager_stream_start(packager, session, srcpad):
-    log_info('_on_packager_stream_start()')
+    log_info(packager, '_on_packager_stream_start()', session)
     with packager.lock:
         if session not in [0, 1]:
             log_warn('session_%s' % session, 'session not found')
             return
 
         elif session == 0:
+            log_info(packager, 'linking video rtp stream')
             _do_mtunsafe_link_video_rtp_stream(packager, srcpad)
 
         elif session == 1:
+            log_info(packager, 'linking audio rtp stream')
             _do_mtunsafe_link_audio_rtp_stream(packager, srcpad)
 
     log_graph(packager.pipeline, 'debug_packager_stream_%s_start' % session)
 
+def _on_packager_stream_stopped(packager, session, srcpad):
+    log_info(packager, '_on_packager_stream_stopped()', session)
+    with packager.lock:
+        if session not in [0, 1]:
+            log_warn('session_%s' % session, 'session not found')
+            return
+
+        elif session == 0:
+            log_info(packager, 'unlinking video rtp stream')
+            _do_mtunsafe_unlink_video_rtp_stream(packager, srcpad)
+
+        elif session == 1:
+            log_info(packager, 'unlinking audio rtp stream')
+            _do_mtunsafe_unlink_audio_rtp_stream(packager, srcpad)
+
+    # FIXME: the debug graph operation blocks forever
+    # log_graph(packager.pipeline, 'debug_packager_stream_%s_stopped' % session)
+    Timer(1, log_graph, args=[packager.pipeline, 'debug_packager_stream_%s_stopped' % session]).start()
+
 def _do_mtunsafe_link_video_rtp_stream(packager, rtp_bin_srcpad):
-    log_info('_do_mtunsafe_link_video_rtp_stream()')
+    # FIXME: lock and pause default video src
+    log_info(packager, '_do_mtunsafe_link_video_rtp_stream()')
     depay_sinkpad = packager.video_depay.get_static_pad('sink')
 
     if depay_sinkpad.is_linked():
+        log_info(packager, 'video depayloader is already linked, unlinking')
         peerpad = depay_sinkpad.get_peer()
         peerpad.set_active(False)
         peerpad.unlink(depay_sinkpad)
 
+    log_info(packager, 'linking video depayloader')
     rtp_bin_srcpad.link(depay_sinkpad)
-    # packager.rtp_bin.emit('reset-sync') # NOTE: not sure what this does
 
     if packager.video_fake_sink.is_locked_state():
+        log_info(packager, 'video fake sink is locked and paused, unlocking and syncing state with parent')
         packager.video_fake_sink.set_locked_state(False)
         packager.video_fake_sink.sync_state_with_parent()
 
     video_decode_tee_srcpad_1 = packager.video_decode_tee.get_static_pad('src_1')
     if not video_decode_tee_srcpad_1:
+        log_info(packager, 'creating video decode tee src pad')
         video_decode_tee_srcpad_1_template = packager.video_decode_tee.get_pad_template('src_%u')
         video_decode_tee_srcpad_1 = packager.video_decode_tee.request_pad(video_decode_tee_srcpad_1_template, 'src_1')
 
-    if video_decode_tee_srcpad_1.is_linked():
-        return
-
     video_selector_sinkpad_1 = packager.video_selector.get_static_pad('sink_1')
     if not video_selector_sinkpad_1:
+        log_info(packager, 'creating video selector sink pad')
         video_selector_sinkpad_1_template = packager.video_selector.get_pad_template('sink_%u')
         video_selector_sinkpad_1 = packager.video_selector.request_pad(video_selector_sinkpad_1_template, 'sink_1')
 
-    video_decode_tee_srcpad_1.link(video_selector_sinkpad_1)
+        log_info(packager, 'linking video decode tee src pad to video selector sink pad')
+        video_decode_tee_srcpad_1.link(video_selector_sinkpad_1)
+
+    log_info(packager, 'setting video selector active pad to 1')
     packager.video_selector.set_property('active-pad', video_selector_sinkpad_1)
 
-def _do_mtunsafe_unlink_video_rtp_stream(packager):
-    log_info('_do_mtunsafe_unlink_video_rtp_stream()')
-    pass # FIXME
+def _do_mtunsafe_unlink_video_rtp_stream(packager, rtp_bin_srcpad):
+    # FIXME: unlock and sync default video src
+    pad_name = rtp_bin_srcpad.get_name()
+    log_info(packager, '_do_mtunsafe_unlink_video_rtp_stream()', pad_name)
+
+    depay_sinkpad = packager.video_depay.get_static_pad('sink')
+
+    if depay_sinkpad.is_linked():
+        log_info(packager, 'depayloader is still linked, not an active ssrc pad, skipping', pad_name)
+        return
+
+    log_info(packager, 'locking and pausing video fake sink')
+    packager.video_fake_sink.set_locked_state(True)
+    packager.video_fake_sink.set_state(Gst.State.PAUSED)
+    video_selector_sinkpad_0 = packager.video_selector.get_static_pad('sink_0')
+
+    log_info(packager, 'setting video selector active pad to 0')
+    packager.video_selector.set_property('active-pad', video_selector_sinkpad_0)
 
 def _do_mtunsafe_link_audio_rtp_stream(packager, rtp_bin_srcpad):
-    log_info('_do_mtunsafe_link_audio_rtp_stream()')
+    # FIXME: lock and pause default audio src
+    log_info(packager, '_do_mtunsafe_link_audio_rtp_stream()')
     depay_sinkpad = packager.audio_depay.get_static_pad('sink')
 
     if depay_sinkpad.is_linked():
+        log_info(packager, 'audio depayloader is already linked, unlinking')
         peerpad = depay_sinkpad.get_peer()
         peerpad.set_active(False)
         peerpad.unlink(depay_sinkpad)
 
+    log_info(packager, 'linking audio depayloader')
     rtp_bin_srcpad.link(depay_sinkpad)
-    # packager.rtp_bin.emit('reset-sync') # NOTE: not sure what this does
 
     if packager.audio_fake_sink.is_locked_state():
+        log_info(packager, 'audio fake sink is locked and paused, unlocking and syncing state with parent')
         packager.audio_fake_sink.set_locked_state(False)
         packager.audio_fake_sink.sync_state_with_parent()
 
     audio_decode_tee_srcpad_1 = packager.audio_decode_tee.get_static_pad('src_1')
     if not audio_decode_tee_srcpad_1:
+        log_info(packager, 'creating audio decode tee src pad')
         audio_decode_tee_srcpad_1_template = packager.audio_decode_tee.get_pad_template('src_%u')
         audio_decode_tee_srcpad_1 = packager.audio_decode_tee.request_pad(audio_decode_tee_srcpad_1_template, 'src_1')
 
-    if audio_decode_tee_srcpad_1.is_linked():
-        return
-
     audio_selector_sinkpad_1 = packager.audio_selector.get_static_pad('sink_1')
     if not audio_selector_sinkpad_1:
+        log_info(packager, 'creating audio selector sink pad')
         audio_selector_sinkpad_1_template = packager.audio_selector.get_pad_template('sink_%u')
         audio_selector_sinkpad_1 = packager.audio_selector.request_pad(audio_selector_sinkpad_1_template, 'sink_1')
 
-    audio_decode_tee_srcpad_1.link(audio_selector_sinkpad_1)
+        log_info(packager, 'linking audio decode tee src pad to audio selector sink pad')
+        audio_decode_tee_srcpad_1.link(audio_selector_sinkpad_1)
+
+    log_info(packager, 'setting audio selector active pad to 1')
     packager.audio_selector.set_property('active-pad', audio_selector_sinkpad_1)
 
-def _do_mtunsafe_unlink_audio_rtp_stream(packager):
-    log_info('_do_mtunsafe_unlink_audio_rtp_stream()')
-    pass # FIXME
+def _do_mtunsafe_unlink_audio_rtp_stream(packager, rtp_bin_srcpad):
+    # FIXME: unlock and sync default audio src
+    pad_name = rtp_bin_srcpad.get_name()
+    log_info(packager, '_do_mtunsafe_unlink_audio_rtp_stream()', pad_name)
+
+    depay_sinkpad = packager.audio_depay.get_static_pad('sink')
+
+    if depay_sinkpad.is_linked():
+        log_info(packager, 'depayloader is still linked, not an active ssrc pad, skipping', pad_name)
+        return
+
+    log_info(packager, 'locking and pausing audio fake sink')
+    packager.audio_fake_sink.set_locked_state(True)
+    packager.audio_fake_sink.set_state(Gst.State.PAUSED)
+    audio_selector_sinkpad_0 = packager.audio_selector.get_static_pad('sink_0')
+
+    log_info(packager, 'setting audio selector active pad to 0')
+    packager.audio_selector.set_property('active-pad', audio_selector_sinkpad_0)
