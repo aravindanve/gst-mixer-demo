@@ -311,7 +311,6 @@ def do_packager_init(**kwargs):
         ## DEBUG
         # packager.temp_fake_sink_0 = Gst.ElementFactory.make('fakesink', 'temp_fake_sink_0')
         # packager.temp_fake_sink_0.set_property('dump', 1)
-        # packager.temp_fake_sink_0.set_property('sync', True)
         # packager.temp_fake_sink_0.set_property('async', False)
         # packager.pipeline.add(packager.temp_fake_sink_0)
         # packager.multi_queue_tee_0.link(packager.temp_fake_sink_0)
@@ -331,7 +330,6 @@ def do_packager_init(**kwargs):
         # DEBUG
         # packager.temp_fake_sink_1 = Gst.ElementFactory.make('fakesink', 'temp_fake_sink_1')
         # packager.temp_fake_sink_1.set_property('dump', 1)
-        # packager.temp_fake_sink_1.set_property('sync', True)
         # packager.temp_fake_sink_1.set_property('async', False)
         # packager.pipeline.add(packager.temp_fake_sink_1)
         # packager.multi_queue_tee_1.link(packager.temp_fake_sink_1)
