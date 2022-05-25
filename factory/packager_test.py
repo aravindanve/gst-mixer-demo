@@ -16,7 +16,8 @@ if __name__ == '__main__':
 
     loop = GLib.MainLoop()
     packager = do_packager_init(
-        debug_output=True,
+        debug_input=os.getenv('DEBUG_INPUT', 'false') == 'true',
+        debug_output=os.getenv('DEBUG_OUTPUT', 'false') == 'true',
         default_pattern='snow',
         default_wave='red-noise',
         video_rtp_encoding_name=os.getenv('VIDEO_RTP_ENCODING_NAME', 'H264'),

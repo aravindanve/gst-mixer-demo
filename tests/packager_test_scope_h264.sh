@@ -9,13 +9,14 @@ killgroup() {
   kill 0
 }
 
-VIDEO_RTP_ENCODING_NAME=VP8 \
+DEBUG_INPUT=true \
+VIDEO_RTP_ENCODING_NAME=H264 \
   ${SCRIPTPATH}/../factory/packager_test.py &
 
 # test restart
 for i in 0 1 2; do
   echo "(re)starting source..."
-  (${SCRIPTPATH}/srcs/rtpsrc_3000_vp8+opus.sh > /dev/null 2>&1) & pid=$!
+  (${SCRIPTPATH}/srcs/rtpsrc_3000_h264+opus.sh > /dev/null 2>&1) & pid=$!
 
   sleep 5
 
@@ -27,7 +28,7 @@ done
 # test timeout
 while true; do
   echo "(re)starting source..."
-  (${SCRIPTPATH}/srcs/rtpsrc_3000_vp8+opus.sh > /dev/null 2>&1) & pid=$!
+  (${SCRIPTPATH}/srcs/rtpsrc_3000_h264+opus.sh > /dev/null 2>&1) & pid=$!
 
   sleep 5
 

@@ -13,6 +13,7 @@ def do_packager_init(**kwargs):
     packager = Packager()
 
     packager.name = 'packager'
+    packager.debug_input = kwargs.get('debug_input', False)
     packager.debug_output = kwargs.get('debug_output', False)
 
     packager.disposed = False
@@ -304,11 +305,49 @@ def do_packager_init(**kwargs):
     audio_fake_sink_sinkpad = packager.audio_fake_sink.get_static_pad('sink')
     audio_decode_tee_srcpad_0.link(audio_fake_sink_sinkpad)
 
-    if packager.debug_output:
-        log_info(packager, 'creating debug output chain')
+    if packager.debug_input:
+        log_info(packager, 'creating debug input chain')
 
-        packager.video_sink = Gst.ElementFactory.make('autovideosink', 'video_sink')
-        packager.pipeline.add(packager.video_sink)
+        packager.debug_multi_queue_tee_0 = Gst.ElementFactory.make('tee', 'debug_multi_queue_tee_0')
+        packager.pipeline.add(packager.debug_multi_queue_tee_0)
+
+        multi_queue_srcpad_0 = packager.multi_queue.get_static_pad('src_0')
+        debug_multi_queue_tee_0_sinkpad = packager.debug_multi_queue_tee_0.get_static_pad('sink')
+        multi_queue_srcpad_0.link(debug_multi_queue_tee_0_sinkpad)
+
+        packager.debug_video_sink = Gst.ElementFactory.make('autovideosink', 'debug_video_sink')
+        packager.pipeline.add(packager.debug_video_sink)
+
+        packager.debug_multi_queue_tee_0.link(packager.debug_video_sink)
+
+        ## DEBUG
+        # packager.temp_fake_sink_0 = Gst.ElementFactory.make('fakesink', 'temp_fake_sink_0')
+        # packager.temp_fake_sink_0.set_property('dump', 1)
+        # packager.temp_fake_sink_0.set_property('async', False)
+        # packager.pipeline.add(packager.temp_fake_sink_0)
+        # packager.debug_multi_queue_tee_0.link(packager.temp_fake_sink_0)
+
+        packager.debug_multi_queue_tee_1 = Gst.ElementFactory.make('tee', 'debug_multi_queue_tee_1')
+        packager.pipeline.add(packager.debug_multi_queue_tee_1)
+
+        multi_queue_srcpad_1 = packager.multi_queue.get_static_pad('src_1')
+        debug_multi_queue_tee_1_sinkpad = packager.debug_multi_queue_tee_1.get_static_pad('sink')
+        multi_queue_srcpad_1.link(debug_multi_queue_tee_1_sinkpad)
+
+        packager.debug_audio_sink = Gst.ElementFactory.make('autoaudiosink', 'debug_audio_sink')
+        packager.pipeline.add(packager.debug_audio_sink)
+
+        packager.debug_multi_queue_tee_1.link(packager.debug_audio_sink)
+
+        # DEBUG
+        # packager.temp_fake_sink_1 = Gst.ElementFactory.make('fakesink', 'temp_fake_sink_1')
+        # packager.temp_fake_sink_1.set_property('dump', 1)
+        # packager.temp_fake_sink_1.set_property('async', False)
+        # packager.pipeline.add(packager.temp_fake_sink_1)
+        # packager.debug_multi_queue_tee_1.link(packager.temp_fake_sink_1)
+
+    else:
+        log_info(packager, 'creating encode input chain')
 
         packager.multi_queue_tee_0 = Gst.ElementFactory.make('tee', 'multi_queue_tee_0')
         packager.pipeline.add(packager.multi_queue_tee_0)
@@ -317,17 +356,30 @@ def do_packager_init(**kwargs):
         multi_queue_tee_0_sinkpad = packager.multi_queue_tee_0.get_static_pad('sink')
         multi_queue_srcpad_0.link(multi_queue_tee_0_sinkpad)
 
-        packager.multi_queue_tee_0.link(packager.video_sink)
+        packager.video_multi_queue_caps_filter = Gst.ElementFactory.make('capsfilter', 'video_multi_queue_caps_filter')
+        packager.video_multi_queue_caps_filter.set_property('caps', packager.video_caps)
+        packager.pipeline.add(packager.video_multi_queue_caps_filter)
 
-        ## DEBUG
-        # packager.temp_fake_sink_0 = Gst.ElementFactory.make('fakesink', 'temp_fake_sink_0')
-        # packager.temp_fake_sink_0.set_property('dump', 1)
-        # packager.temp_fake_sink_0.set_property('async', False)
-        # packager.pipeline.add(packager.temp_fake_sink_0)
-        # packager.multi_queue_tee_0.link(packager.temp_fake_sink_0)
+        packager.multi_queue_tee_0.link(packager.video_multi_queue_caps_filter)
 
-        packager.audio_sink = Gst.ElementFactory.make('autoaudiosink', 'audio_sink')
-        packager.pipeline.add(packager.audio_sink)
+        packager.video_enc = Gst.ElementFactory.make('x264enc', 'video_enc')
+        packager.video_enc.set_property('speed-preset', 'fast')
+        # packager.video_enc.set_property('vbv-buf-capacity', 2400) # FIXME
+        # packager.video_enc.set_property('bitrate', 1200) # FIXME
+        packager.pipeline.add(packager.video_enc)
+
+        packager.video_multi_queue_caps_filter.link(packager.video_enc)
+
+        packager.video_enc_caps_filter = Gst.ElementFactory.make('capsfilter', 'video_enc_caps_filter')
+        packager.video_enc_caps_filter.set_property('caps', Gst.caps_from_string('video/x-h264,profile=main'))
+        packager.pipeline.add(packager.video_enc_caps_filter)
+
+        packager.video_enc.link(packager.video_enc_caps_filter)
+
+        packager.muxer_video_pre_parse = Gst.ElementFactory.make('h264parse', 'muxer_video_pre_parse')
+        packager.pipeline.add(packager.muxer_video_pre_parse)
+
+        packager.video_enc_caps_filter.link(packager.muxer_video_pre_parse)
 
         packager.multi_queue_tee_1 = Gst.ElementFactory.make('tee', 'multi_queue_tee_1')
         packager.pipeline.add(packager.multi_queue_tee_1)
@@ -336,19 +388,82 @@ def do_packager_init(**kwargs):
         multi_queue_tee_1_sinkpad = packager.multi_queue_tee_1.get_static_pad('sink')
         multi_queue_srcpad_1.link(multi_queue_tee_1_sinkpad)
 
-        packager.multi_queue_tee_1.link(packager.audio_sink)
+        packager.audio_multi_queue_caps_filter = Gst.ElementFactory.make('capsfilter', 'audio_multi_queue_caps_filter')
+        packager.audio_multi_queue_caps_filter.set_property('caps', packager.audio_caps)
+        packager.pipeline.add(packager.audio_multi_queue_caps_filter)
 
-        # DEBUG
-        # packager.temp_fake_sink_1 = Gst.ElementFactory.make('fakesink', 'temp_fake_sink_1')
-        # packager.temp_fake_sink_1.set_property('dump', 1)
-        # packager.temp_fake_sink_1.set_property('async', False)
-        # packager.pipeline.add(packager.temp_fake_sink_1)
-        # packager.multi_queue_tee_1.link(packager.temp_fake_sink_1)
+        packager.multi_queue_tee_1.link(packager.audio_multi_queue_caps_filter)
 
-    else:
-        # FIXME
-        log_error(packager, 'hls not implemented')
-        return
+        packager.audio_enc_pre_convert = Gst.ElementFactory.make('audioconvert', 'audio_enc_pre_convert')
+        packager.pipeline.add(packager.audio_enc_pre_convert)
+
+        packager.audio_multi_queue_caps_filter.link(packager.audio_enc_pre_convert)
+
+        packager.audio_enc = Gst.ElementFactory.make('faac', 'audio_enc')
+        # packager.audio_enc.set_property('bitrate', 96000) # FIXME
+        packager.pipeline.add(packager.audio_enc)
+
+        packager.audio_enc_pre_convert.link(packager.audio_enc)
+
+        packager.audio_enc_caps_filter = Gst.ElementFactory.make('capsfilter', 'audio_enc_caps_filter')
+        packager.audio_enc_caps_filter.set_property('caps', Gst.caps_from_string('audio/mpeg'))
+        packager.pipeline.add(packager.audio_enc_caps_filter)
+
+        packager.audio_enc.link(packager.audio_enc_caps_filter)
+
+        packager.muxer_audio_pre_parse = Gst.ElementFactory.make('aacparse', 'muxer_audio_pre_parse')
+        packager.pipeline.add(packager.muxer_audio_pre_parse)
+
+        packager.audio_enc_caps_filter.link(packager.muxer_audio_pre_parse)
+
+        packager.muxer = Gst.ElementFactory.make('mpegtsmux', 'muxer')
+        packager.pipeline.add(packager.muxer)
+
+        muxer_video_pre_parse_srcpad = packager.muxer_video_pre_parse.get_static_pad('src')
+        muxer_sinkpad_0_template = packager.muxer.get_pad_template('sink_%d')
+        muxer_sinkpad_0 = packager.muxer.request_pad(muxer_sinkpad_0_template, 'sink_0')
+        muxer_video_pre_parse_srcpad.link(muxer_sinkpad_0)
+
+        muxer_audio_pre_parse_srcpad = packager.muxer_audio_pre_parse.get_static_pad('src')
+        muxer_sinkpad_1_template = packager.muxer.get_pad_template('sink_%d')
+        muxer_sinkpad_1 = packager.muxer.request_pad(muxer_sinkpad_1_template, 'sink_1')
+        muxer_audio_pre_parse_srcpad.link(muxer_sinkpad_1)
+
+        if packager.debug_output:
+            log_info(packager, 'creating debug output chain')
+
+            packager.debug_decode_bin = Gst.ElementFactory.make('decodebin', 'debug_decode_bin')
+            packager.pipeline.add(packager.debug_decode_bin)
+
+            packager.muxer.link(packager.debug_decode_bin)
+
+            packager.debug_video_sink = Gst.ElementFactory.make('autovideosink', 'debug_video_sink')
+            packager.pipeline.add(packager.debug_video_sink)
+
+            packager.debug_decode_bin.link_filtered(packager.debug_video_sink, Gst.caps_from_string('video/x-raw'))
+
+            packager.debug_audio_sink = Gst.ElementFactory.make('autoaudiosink', 'debug_audio_sink')
+            packager.pipeline.add(packager.debug_audio_sink)
+
+            packager.debug_decode_bin.link_filtered(packager.debug_audio_sink, Gst.caps_from_string('audio/x-raw'))
+
+        else:
+            log_info(packager, 'creating hls output chain')
+
+            packager.hls_location = kwargs.get('hls_location') or '../outputs/chunk%04d.ts'
+            packager.hls_playlist_location = kwargs.get('hls_playlist_location') or '../outputs/playlist.m3u8'
+            packager.hls_playlist_length = kwargs.get('hls_playlist_length') or 8
+            packager.hls_target_duration = kwargs.get('hls_target_duration') or 2
+
+            packager.hls_sink = Gst.ElementFactory.make('hlssink', 'hls_sink')
+            packager.hls_sink.set_property('max-files', 0)
+            packager.hls_sink.set_property('location', packager.hls_location)
+            packager.hls_sink.set_property('playlist-location', packager.hls_playlist_location)
+            packager.hls_sink.set_property('playlist-length', packager.hls_playlist_length)
+            packager.hls_sink.set_property('target-duration', packager.hls_target_duration)
+            packager.pipeline.add(packager.hls_sink)
+
+            packager.muxer.link(packager.hls_sink)
 
     log_info(packager, 'attaching event listeners')
     packager.rtp_bin.connect('pad-added', _on_packager_rtp_bin_pad_added, packager)
