@@ -1,3 +1,3 @@
-# Nebula Demo
+# GStreamer Mixer Demo
 
-Proof of conept for Nebula Streaming Service
+Proof of concept for a streaming service
